@@ -49,20 +49,20 @@ def get_folders():
         href = link['href']
 
         # Extract folder ids from links in HTML exported through Google Drive API.
-        folder_id_pattern = "q=https://drive.google.com/.*/folders/(.*?)[&|?]"
+        folder_id_pattern = 'q=https://drive.google.com/.*/folders/(.*?)[&|?]'
         folder_id_matches = re.search(folder_id_pattern, href)
         
         if folder_id_matches is not None:
             id = folder_id_matches.group(1)
-            folders.append({"id": id, "name": str(link.contents[0])})
+            folders.append({'id': id, 'name': str(link.contents[0])})
 
     return folders
 
 def get_folders_matching_files(folder_id):
     file_ids = []
     results = service.files().list(
-        q = f"'{folder_id}' in parents and mimeType = 'application/pdf'",
-        fields = "files(id, name)"
+        q = f'\'{folder_id}\' in parents and mimeType = \'application/pdf\'',
+        fields = 'files(id, name)'
     ).execute()
 
     files = results['files']
@@ -85,11 +85,11 @@ def get_matching_files():
 
 def create_output_directory():
     results = service.files().list(
-        q = f"'{output_folder_parent}' in parents " + 
-            f"and name = '{output_folder_name}' " + 
-            "and mimeType = 'application/vnd.google-apps.folder' " + 
-            "and trashed = false",
-        fields = "files(id, name)"
+        q = f'\'{output_folder_parent}\' in parents ' + 
+            f'and name = \'{output_folder_name}\' ' + 
+            'and mimeType = \'application/vnd.google-apps.folder\' ' + 
+            'and trashed = false',
+        fields = 'files(id, name)'
     ).execute()
 
     for result in results['files']:
@@ -108,20 +108,22 @@ def create_output_directory():
     return output_file['id']
 
 def copy_agenda_files():
-    i = ord('a')
+    i = 0
     for id_group in file_ids:
+        file_name_prefix = ('a' * (i//10)) + str(i % 10) + '. '
         for id_name_pair in id_group:
             service.files().copy(
                 fileId = id_name_pair[0],
-                body = {'name': chr(i) + ". " + id_name_pair[1],
-                        'parents': [output_folder_id],
-                }
+                body = {'name': file_name_prefix + id_name_pair[1],
+                        'parents': [output_folder_id]
+                        }
             ).execute()
         i += 1
+    print(f"Successfully copied files to the '{output_folder_name}' directory")
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description='Process Google Docs export source_dir and write to dest_dir')
-    parser.add_argument('config_ini_file', help="the file containing the configuration for the app", nargs=1)
+    parser = ArgumentParser(description='Copies files from linked directories in a Google Drive agenda file to an output folder')
+    parser.add_argument('config_ini_file', help='the file containing the configuration for the app', nargs=1)
     args = parser.parse_args()
 
     config_ini_file = args.config_ini_file
