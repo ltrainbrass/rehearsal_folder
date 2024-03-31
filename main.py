@@ -45,6 +45,8 @@ def get_folders():
     folders = []
 
     soup = BeautifulSoup(html, 'html.parser')
+    if read_first_table:
+        soup = soup.select_one('table')
     for link in soup.find_all('a', href=True):
         href = link['href']
 
@@ -124,12 +126,14 @@ def copy_agenda_files():
 if __name__ == '__main__':
     parser = ArgumentParser(description='Copies files from linked directories in a Google Drive agenda file to an output folder')
     parser.add_argument('config_ini_file', help='the file containing the configuration for the app', nargs=1)
+    parser.add_argument('--first-table', action='store_true', help='only the linked directories in the first table of the agenda file should be read')
     args = parser.parse_args()
 
     config_ini_file = args.config_ini_file
     config = configparser.RawConfigParser()
     config.read(config_ini_file)
     file_id = config['agenda_file']['id']
+    read_first_table = args.first_table
 
     service = create_service()
     html = service.files().export_media(fileId=file_id, mimeType='text/html').execute()
