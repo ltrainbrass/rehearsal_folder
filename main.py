@@ -63,12 +63,20 @@ def get_folders():
 def get_folders_matching_files(folder_id):
     file_ids = []
     results = service.files().list(
-        q = f'\'{folder_id}\' in parents and mimeType = \'application/pdf\'',
-        fields = 'files(id, name)'
+        q = f'\'{folder_id}\' in parents',
+        fields = 'files(id, name, mimeType)'
     ).execute()
 
     files = results['files']
-    for file in files:
+    pdf_files = [file for file in files if file['mimeType'] == 'application/pdf']
+    if len(pdf_files) == 0:
+        folders = [file for file in files if file['mimeType'] == 'application/vnd.google-apps.folder']
+        if len(folders) != 0:
+            # Find latest folder alphabetically, assuming that folder names are version names.
+            last_folder = max(folders, key=lambda folder: folder['name'])
+            return get_folders_matching_files(last_folder['id'])
+
+    for file in pdf_files:
         for keyword in keywords:
             if keyword.casefold() in file['name'].casefold():
                 file_ids.append((file['id'], file['name']))
