@@ -22,6 +22,5 @@ python main.py <config ini path>
 A `token.json` file is created for using the Drive API. If the script is run without an existing `token.json` file, you will be prompted to sign into your Google Account and allow access to your account.
 
 ### TODO
-- [ ] logging
 - [ ] error handling for configuration
 - [ ] code documentation

@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import configparser
+import logging 
 import os.path
 import re
 
@@ -47,6 +48,10 @@ def get_folders():
     soup = BeautifulSoup(html, 'html.parser')
     if read_from_table:
         soup = soup.select_one('table:nth-of-type({})'.format(table_number))
+        if soup is None:
+            logger.error('Table #%d could not be found in the agenda file', table_number)
+            return folders
+        
     for link in soup.find_all('a', href=True):
         href = link['href']
 
@@ -55,8 +60,10 @@ def get_folders():
         folder_id_matches = re.search(folder_id_pattern, href)
         
         if folder_id_matches is not None:
-            id = folder_id_matches.group(1)
-            folders.append({'id': id, 'name': str(link.contents[0])})
+            folders.append({'id': folder_id_matches.group(1), 'name': str(link.contents[0])})
+        else:
+            # Folder id could not be identified from link. Link may not be to a folder.
+            logger.debug('No folder id found for \'%s\' - skipping link', link.text)
 
     return folders
 
@@ -88,7 +95,8 @@ def get_matching_files():
     for folder in folders:
         matching_file_ids = get_folders_matching_files(folder['id'])
         if not matching_file_ids:
-            print(f"No matching files found for folder with id '{folder['name']}'")
+            logger.warning('No matching files found for folder with name=\'%s\', id=%s', 
+                           folder['name'], folder['id'])
             continue
         file_ids.append(matching_file_ids)
     return file_ids
@@ -103,7 +111,7 @@ def create_output_directory():
     ).execute()
 
     for result in results['files']:
-        print (f"Deleting folder with name '{result['name']}' and id {result['id']}")
+        logger.info('Deleting folder with name=%s, id=%s', result['name'], result['id'])
         service.files().delete(fileId=result['id']).execute()
 
     output_file = service.files().create(
@@ -122,6 +130,7 @@ def copy_agenda_files():
     for id_group in file_ids:
         file_name_prefix = ('a' * (i//10)) + str(i % 10) + '. '
         for id_name_pair in id_group:
+            logger.debug('Copying \'%s\' to the output directory', id_name_pair[1])
             service.files().copy(
                 fileId = id_name_pair[0],
                 body = {'name': file_name_prefix + id_name_pair[1],
@@ -129,7 +138,7 @@ def copy_agenda_files():
                         }
             ).execute()
         i += 1
-    print(f"Successfully copied files to the '{output_folder_name}' directory")
+    logger.info('Successfully copied files to the \'%s\' directory', output_folder_name)
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Copies files from linked directories in a Google Drive agenda file to an output folder')
@@ -144,15 +153,20 @@ if __name__ == '__main__':
     read_from_table = args.from_table != 0
     table_number = args.from_table
 
+    logging.basicConfig(level=config['logging']['rehearsal_directory'])
+    logger = logging.getLogger('rehearsal_directory') 
+    google_logger = logging.getLogger('googleapiclient')
+    google_logger.setLevel(config['logging']['googleapiclient'])
+
     service = create_service()
     html = service.files().export_media(fileId=file_id, mimeType='text/html').execute()
     folders = get_folders()
-    
-    keywords = [term.strip() for term in config['keywords']['keywords'].split(',')]
-    file_ids = get_matching_files()
+    if len(folders) != 0:
+        keywords = [term.strip() for term in config['keywords']['keywords'].split(',')]
+        file_ids = get_matching_files()
 
-    output_folder_parent = config['output']['parent_id']
-    output_folder_name = config['output']['folder_name']
-    output_folder_id = create_output_directory()
+        output_folder_parent = config['output']['parent_id']
+        output_folder_name = config['output']['folder_name']
+        output_folder_id = create_output_directory()
 
-    copy_agenda_files()
+        copy_agenda_files()
