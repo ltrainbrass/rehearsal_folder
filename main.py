@@ -128,12 +128,11 @@ def create_output_directory():
 def copy_agenda_files():
     i = 0
     for id_group in file_ids:
-        file_name_prefix = ('a' * (i//10)) + str(i % 10) + '. '
         for id_name_pair in id_group:
             logger.debug('Copying \'%s\' to the output directory', id_name_pair[1])
             service.files().copy(
                 fileId = id_name_pair[0],
-                body = {'name': file_name_prefix + id_name_pair[1],
+                body = {'name': '%d. %s' % (i, id_name_pair[1]),
                         'parents': [output_folder_id]
                         }
             ).execute()
