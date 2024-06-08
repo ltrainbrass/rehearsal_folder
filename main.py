@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 import configparser
 import logging 
 import os.path
@@ -12,6 +10,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+logger = logging.getLogger('rehearsal_directory') 
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -36,15 +36,16 @@ def create_service():
             token.write(creds.to_json())
 
     try:
-        # TODO: exception?
         return build('drive', 'v3', credentials=creds)
 
     except HttpError as error:
-        print(f'An error occurred: {error}')
+        logger.error('An error occurred: %s' % error)
+        raise error
 
-def get_folders():
+def get_folders(service, read_from_table, table_number, file_id):
     folders = []
 
+    html = service.files().export_media(fileId=file_id, mimeType='text/html').execute()
     soup = BeautifulSoup(html, 'html.parser')
     if read_from_table:
         soup = soup.select_one('table:nth-of-type({})'.format(table_number))
@@ -67,7 +68,7 @@ def get_folders():
 
     return folders
 
-def get_folders_matching_files(folder_id):
+def get_matching_files_in_folder(service, folder_id, keywords):
     file_ids = []
     results = service.files().list(
         q = f'\'{folder_id}\' in parents',
@@ -81,7 +82,7 @@ def get_folders_matching_files(folder_id):
         if len(folders) != 0:
             # Find latest folder alphabetically, assuming that folder names are version names.
             last_folder = max(folders, key=lambda folder: folder['name'])
-            return get_folders_matching_files(last_folder['id'])
+            return get_matching_files_in_folder(last_folder['id'], service, keywords)
 
     for file in pdf_files:
         for keyword in keywords:
@@ -90,10 +91,10 @@ def get_folders_matching_files(folder_id):
                 break
     return file_ids
 
-def get_matching_files():
+def get_matching_files(service, folders, keywords):
     file_ids = []
     for folder in folders:
-        matching_file_ids = get_folders_matching_files(folder['id'])
+        matching_file_ids = get_matching_files_in_folder(service, folder['id'], keywords)
         if not matching_file_ids:
             logger.warning('No matching files found for folder with name=\'%s\', id=%s', 
                            folder['name'], folder['id'])
@@ -101,7 +102,7 @@ def get_matching_files():
         file_ids.append(matching_file_ids)
     return file_ids
 
-def create_output_directory():
+def create_output_directory(service, output_folder_parent, output_folder_name):
     results = service.files().list(
         q = f'\'{output_folder_parent}\' in parents ' + 
             f'and name = \'{output_folder_name}\' ' + 
@@ -125,7 +126,7 @@ def create_output_directory():
 
     return output_file['id']
 
-def copy_agenda_files():
+def copy_agenda_files(service, file_ids, output_folder_id, output_folder_name):
     i = 0
     for id_group in file_ids:
         for id_name_pair in id_group:
@@ -139,11 +140,14 @@ def copy_agenda_files():
         i += 1
     logger.info('Successfully copied files to the \'%s\' directory', output_folder_name)
 
-if __name__ == '__main__':
+def parse_arguments():
     parser = ArgumentParser(description='Copies files from linked directories in a Google Drive agenda file to an output folder')
     parser.add_argument('config_ini_file', help='the file containing the configuration for the app', nargs=1)
     parser.add_argument('--from-table', type=int, default=0, help='specifies the table index (1-indexed) from which to read directory links')
-    args = parser.parse_args()
+    return parser.parse_args()
+
+def main():
+    args = parse_arguments()
 
     config_ini_file = args.config_ini_file
     config = configparser.RawConfigParser()
@@ -153,19 +157,21 @@ if __name__ == '__main__':
     table_number = args.from_table
 
     logging.basicConfig(level=config['logging']['rehearsal_directory'])
-    logger = logging.getLogger('rehearsal_directory') 
     google_logger = logging.getLogger('googleapiclient')
     google_logger.setLevel(config['logging']['googleapiclient'])
 
     service = create_service()
-    html = service.files().export_media(fileId=file_id, mimeType='text/html').execute()
-    folders = get_folders()
+    folders = get_folders(service, read_from_table, table_number, file_id)
     if len(folders) != 0:
         keywords = [term.strip() for term in config['keywords']['keywords'].split(',')]
-        file_ids = get_matching_files()
+        file_ids = get_matching_files(service, folders, keywords)
 
         output_folder_parent = config['output']['parent_id']
         output_folder_name = config['output']['folder_name']
-        output_folder_id = create_output_directory()
+        
+        output_folder_id = create_output_directory(service, output_folder_parent, output_folder_name)
 
-        copy_agenda_files()
+        copy_agenda_files(service, file_ids, output_folder_id, output_folder_name)
+
+if __name__ == '__main__':
+    main()
